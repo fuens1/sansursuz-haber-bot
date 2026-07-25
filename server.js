@@ -332,6 +332,9 @@ app.post('/admin/add-manual', upload.single('file'), (req, res) => {
         };
     }
 
+    const nowTimestamp = Date.now();
+    const nowDateString = new Date().toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' });
+
     const newMsg = {
         id: "MANUAL_" + Date.now().toString(),
         msgId: "manual_" + Math.random(),
@@ -339,10 +342,10 @@ app.post('/admin/add-manual', upload.single('file'), (req, res) => {
         title: title || "", 
         text: text || "",
         media: mediaObj,
-        date: new Date().toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' }),
-        timestamp: Date.now(),
-        approvedDate: new Date().toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' }),
-        approvedTimestamp: Date.now(),
+        date: nowDateString,
+        timestamp: nowTimestamp,
+        approvedDate: nowDateString,
+        approvedTimestamp: nowTimestamp,
         views: 0,
         comments: []
     };
@@ -464,8 +467,16 @@ app.post('/admin/approve', (req, res) => {
     const msgIndex = pendingMessages.findIndex(m => m.id === id);
     if (msgIndex > -1) {
         const msg = pendingMessages.splice(msgIndex, 1)[0]; 
-        msg.approvedDate = new Date().toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' });
-        msg.approvedTimestamp = Date.now(); 
+        
+        const nowTime = Date.now();
+        const nowDateStr = new Date().toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' });
+        
+        // YENİ: Telegram saati üzerine yöneticinin onayladığı güncel saati yazıyoruz
+        msg.date = nowDateStr; 
+        msg.timestamp = nowTime; 
+        
+        msg.approvedDate = nowDateStr;
+        msg.approvedTimestamp = nowTime; 
         
         msg.views = 0;
         msg.comments = [];

@@ -53,6 +53,17 @@
         .news-article { background: var(--bg-card); border-radius: 6px; overflow: hidden; box-shadow: 0 4px 15px var(--card-shadow); border: 1px solid var(--border-color); display: flex; flex-direction: column; cursor: pointer; transition: 0.2s;}
         .news-article:hover { transform: translateY(-5px); border-color:#d32f2f;}
         
+        /* YENİ: OKUNMAMIŞ HABER IŞILTISI */
+        @keyframes pulseGlow {
+            0% { box-shadow: 0 0 5px rgba(211, 47, 47, 0.4); border-color: rgba(211, 47, 47, 0.5); }
+            50% { box-shadow: 0 0 15px rgba(211, 47, 47, 0.9); border-color: rgba(211, 47, 47, 1); }
+            100% { box-shadow: 0 0 5px rgba(211, 47, 47, 0.4); border-color: rgba(211, 47, 47, 0.5); }
+        }
+        .unread-glow {
+            animation: pulseGlow 1.5s infinite;
+            border: 2px solid #d32f2f !important;
+        }
+
         .news-media-wrapper { width: 100%; height: 250px; background-color: #000; display: flex; justify-content: center; align-items: center; border-bottom: 4px solid #d32f2f; overflow:hidden; position: relative;}
         .news-media { width: 100%; height: 100%; object-fit: contain; }
         
@@ -275,16 +286,23 @@
         const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
         document.getElementById('currentDate').innerText = new Date().toLocaleDateString('tr-TR', options);
 
-        const sessionUid = Math.random().toString(36).substring(2);
+        // YENİ: Anlık SSE (Server-Sent Events) Bağlantısı
+        const evtSource = new EventSource("/stream");
         
-        function sendPing() { fetch('/ping', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ userId: sessionUid }) }); }
-        setInterval(sendPing, 15000); sendPing();
+        evtSource.addEventListener("onlineCount", function(e) {
+            const data = JSON.parse(e.data);
+            document.getElementById('onlineCount').innerText = data.count || 0;
+        });
+
+        evtSource.addEventListener("refreshNews", function(e) {
+            // Arka planda haber onaylandığında/eklendiğinde veya yorum yapıldığında anında tetiklenir
+            if(document.getElementById('approved').classList.contains('active')) {
+                loadApproved(true); 
+            }
+        });
 
         setInterval(async () => {
             if(!isAdmin) return;
-            const res = await fetch('/admin/stats');
-            const data = await res.json();
-            document.getElementById('onlineCount').innerText = data.onlineCount || 0;
             checkNotifications();
         }, 5000);
 
@@ -293,6 +311,10 @@
         let approvedPage = 1;
         let pendingPage = 1;
         const ITEMS_PER_PAGE = 12;
+
+        // OKUNMUŞ HABERLERİ TARAYICI HAFIZASINDAN ÇEK (ID BAZLI)
+        let readNewsArray = JSON.parse(localStorage.getItem('sh_read_news')) || [];
+
         window.onload = () => loadApproved(true); 
 
         function generateMediaHtml(mediaObj, wrapClass, itemClass) {
@@ -320,8 +342,13 @@
 
             list.innerHTML = data.data.map(msg => {
                 const mediaHtml = generateMediaHtml(msg.media, "news-media-wrapper", "news-media");
+                
+                // YENİ: Okunmamışsa ışıltı klasını ekle
+                const isRead = readNewsArray.includes(msg.id);
+                const glowClass = isRead ? '' : 'unread-glow';
+
                 return `
-                <article class="news-article" onclick="openModal('${msg.id}')">
+                <article id="article-${msg.id}" class="news-article ${glowClass}" onclick="openModal('${msg.id}')">
                     ${mediaHtml}
                     <div class="news-content">
                         <div class="news-meta">
@@ -351,6 +378,17 @@
         function openModal(id) {
             const msg = allApprovedNews.find(m => m.id === id);
             if(!msg) return;
+
+            // YENİ: Habere tıklandığında okunmuş olarak işaretle ve ışıltıyı sil
+            if (!readNewsArray.includes(id)) {
+                readNewsArray.push(id);
+                localStorage.setItem('sh_read_news', JSON.stringify(readNewsArray));
+                const card = document.getElementById(`article-${id}`);
+                if (card) {
+                    card.classList.remove('unread-glow');
+                }
+            }
+
             interact(id, 'view'); 
 
             const modalBody = document.getElementById('modalBody');
@@ -398,7 +436,8 @@
         function closeModal(force = false) {
             if(force || event.target.id === 'newsModal') {
                 document.getElementById('newsModal').classList.remove('show');
-                loadApproved(); 
+                // Modal kapanırken arkaplandaki ana ekranın tam güncel kalmasını sağlarız
+                loadApproved(true); 
             }
         }
 
@@ -413,14 +452,12 @@
             await interact(id, 'comment', text);
             input.value = "";
             alert("Yorumunuz başarıyla gönderildi.");
-            loadApproved(true);
             setTimeout(() => openModal(id), 300); 
         }
         
         async function deleteComment(msgId, commentId) {
             if(!confirm("Yorumu kalıcı olarak silmek istiyor musunuz?")) return;
             await fetch('/admin/delete-comment', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ msgId, commentId }) });
-            loadApproved(true);
             setTimeout(() => openModal(msgId), 300); 
         }
 
@@ -497,7 +534,6 @@
                 document.getElementById('manualText').value = "";
                 document.getElementById('manualMedia').value = "";
                 switchTab('approved');
-                loadApproved(true);
             } catch(e) {
                 alert("Bir hata oluştu.");
                 console.error(e);
@@ -614,7 +650,7 @@
         async function forceApprove(id) {
             await fetch('/admin/approve', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ id }) });
             document.getElementById('similarityModal').classList.remove('show');
-            loadPending(true); loadApproved(true);
+            loadPending(true);
         }
 
         async function editMsg(id) {
@@ -637,12 +673,12 @@
         async function saveModalEdit(id) {
             const newText = document.getElementById(`modal-input-${id}`).value;
             await fetch('/admin/approved-edit', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ id, newText }) });
-            closeModal(true); loadApproved(true); 
+            closeModal(true); 
         }
         async function deleteModalApproved(id) {
             if(!confirm("Bu haberi yayından kaldırmak istediğinize emin misiniz?")) return;
             await fetch('/admin/approved-delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ id }) });
-            closeModal(true); loadApproved(true); 
+            closeModal(true); 
         }
 
         setInterval(() => { if(document.getElementById('pending').classList.contains('active')) loadPending(false); }, 5000); 

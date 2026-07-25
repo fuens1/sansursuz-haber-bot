@@ -36,9 +36,18 @@ let approvedMessages = [];
 let lastMessageIds = {}; 
 let isFirstRun = true; 
 let isAutoFetchActive = true;
-
-let activeUsers = {}; 
 let adminNotifications = []; 
+
+// YENİ: Anlık SSE (Server-Sent Events) İstemcileri
+let sseClients = new Map();
+
+// YENİ: Tüm aktif istemcilere (tarayıcılara) anında veri gönderme fonksiyonu
+function broadcastSSE(event, data) {
+    const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+    for (const res of sseClients.values()) {
+        try { res.write(payload); } catch (err) {}
+    }
+}
 
 const axiosInstance = axios.create({
     httpAgent: new http.Agent({ keepAlive: true }),
@@ -48,21 +57,24 @@ const axiosInstance = axios.create({
 
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 
-app.post('/ping', (req, res) => {
-    const userId = req.body.userId || req.ip;
-    activeUsers[userId] = Date.now();
-    res.json({ success: true });
-});
+// YENİ: ANLIK BAĞLANTI (STREAM) NOKTASI
+app.get('/stream', (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
 
-setInterval(() => {
-    const now = Date.now();
-    for(let id in activeUsers) {
-        if(now - activeUsers[id] > 60000) delete activeUsers[id];
-    }
-}, 15000);
+    const clientId = Date.now().toString() + Math.random().toString();
+    sseClients.set(clientId, res);
 
-app.get('/admin/stats', (req, res) => {
-    res.json({ onlineCount: Object.keys(activeUsers).length });
+    // Yeni biri girdiğinde herkesin online sayacını anında güncelle
+    broadcastSSE('onlineCount', { count: sseClients.size });
+
+    // Kişi sekmeyi veya tarayıcıyı kapattığında anında sil ve sayacı güncelle
+    req.on('close', () => {
+        sseClients.delete(clientId);
+        broadcastSSE('onlineCount', { count: sseClients.size });
+    });
 });
 
 app.get('/status', (req, res) => res.json({ isAutoFetchActive }));
@@ -257,7 +269,7 @@ async function checkChannels() {
             }
         });
     });
-    if (isFirstRun) { console.log("✅ Sistem hazır."); isFirstRun = false; }
+    if (isFirstRun) { console.log("✅ Sistem hazır. Gelişmiş SSE Aktif!"); isFirstRun = false; }
 }
 setInterval(checkChannels, 3000);
 setTimeout(checkChannels, 1000);
@@ -350,6 +362,10 @@ app.post('/admin/add-manual', upload.single('file'), (req, res) => {
         comments: []
     };
     approvedMessages.unshift(newMsg); 
+
+    // YENİ: Haber eklendiğinde herkese anlık bildir
+    broadcastSSE('refreshNews', { success: true });
+
     res.json({ success: true });
 });
 
@@ -377,6 +393,8 @@ app.post('/interact', (req, res) => {
                 text: data,
                 date: commentData.date
             });
+            // YENİ: Biri yorum yaptığında herkese anlık bildir
+            broadcastSSE('refreshNews', { success: true });
         }
     }
     res.json({ success: true, msg });
@@ -388,6 +406,7 @@ app.post('/admin/delete-comment', (req, res) => {
     
     if (msg && msg.comments) {
         msg.comments = msg.comments.filter(c => c.id !== commentId);
+        broadcastSSE('refreshNews', { success: true }); // Yorum silinince herkese bildir
     }
     res.json({ success: true });
 });
@@ -471,7 +490,6 @@ app.post('/admin/approve', (req, res) => {
         const nowTime = Date.now();
         const nowDateStr = new Date().toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' });
         
-        // YENİ: Telegram saati üzerine yöneticinin onayladığı güncel saati yazıyoruz
         msg.date = nowDateStr; 
         msg.timestamp = nowTime; 
         
@@ -482,6 +500,10 @@ app.post('/admin/approve', (req, res) => {
         msg.comments = [];
         
         approvedMessages.unshift(msg); 
+        
+        // YENİ: Haber onaylandığında sayfadaki herkesin akışını anında güncelle
+        broadcastSSE('refreshNews', { success: true });
+
         res.json({ success: true });
     } else { res.json({ success: false }); }
 });
@@ -494,12 +516,14 @@ app.get('/admin/approved', (req, res) => {
 
 app.post('/admin/approved-delete', (req, res) => {
     approvedMessages = approvedMessages.filter(m => m.id !== req.body.id);
+    broadcastSSE('refreshNews', { success: true }); // Herkese bildir
     res.json({ success: true });
 });
 
 app.post('/admin/approved-edit', (req, res) => {
     const msg = approvedMessages.find(m => m.id === req.body.id);
     if (msg) msg.text = req.body.newText;
+    broadcastSSE('refreshNews', { success: true }); // Herkese bildir
     res.json({ success: true });
 });
 

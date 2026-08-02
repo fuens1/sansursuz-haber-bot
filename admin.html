@@ -204,6 +204,7 @@
         </div>
     </div>
 
+    <!-- YENİ BİLGİLERLE GÜNCELLENEN GİRİŞ EKRANI -->
     <div class="modal-backdrop" id="loginModal">
         <div class="modal-content" style="max-width: 400px; padding: 30px; display: block; border-top: 5px solid #d32f2f;">
             <h2 style="margin-top:0; color:var(--text-main); text-align:center;">Yönetici Girişi</h2>
@@ -255,8 +256,9 @@
             }
         };
 
+        // YENİ ŞİFRELERLE GİRİŞ KONTROLÜ
         function checkLogin() {
-            if(document.getElementById('adminUser').value === 'A' && document.getElementById('adminPass').value === 'B') {
+            if(document.getElementById('adminUser').value === 'adminlock' && document.getElementById('adminPass').value === 'passworded') {
                 localStorage.setItem('sh_admin_logged_in', 'true'); 
                 document.getElementById('loginModal').classList.remove('show');
                 loadPending(true);
@@ -264,7 +266,10 @@
                 checkNotifications();
                 loadAutoFetchSettings(); 
                 if ("Notification" in window) Notification.requestPermission();
-            } else { alert("Hatalı şifre!"); }
+            } else { 
+                alert("Hatalı kullanıcı adı veya şifre!"); 
+                document.getElementById('adminPass').value = ''; // Yanlış girilirse şifre kutusunu temizler
+            }
         }
 
         function adminLogout() { 

@@ -10,6 +10,7 @@
         :root {
             --bg-body: #f7f9fa; --bg-card: #ffffff;
             --text-main: #111111; --text-muted: #777777; --border-color: #eaeaea;
+            --top-bar-bg: #111111; --top-bar-text: #ffffff;
             --nav-bg: #d32f2f; --hover-red: #b71c1c; --card-shadow: rgba(0,0,0,0.06);
             --input-bg: #ffffff; --input-border: #cccccc;
         }
@@ -17,12 +18,15 @@
         [data-theme="dark"] {
             --bg-body: #121212; --bg-card: #1e1e1e;
             --text-main: #e0e0e0; --text-muted: #aaaaaa; --border-color: #333333;
+            --top-bar-bg: #000000; --top-bar-text: #e0e0e0;
             --nav-bg: #a61c1c; --hover-red: #7f1212; --card-shadow: rgba(0,0,0,0.5);
             --input-bg: #2a2a2a; --input-border: #444444;
         }
 
         body { font-family: 'Roboto', sans-serif; background-color: var(--bg-body); margin: 0; padding: 0; color: var(--text-main); transition: 0.3s; }
         
+        .top-bar { background: var(--top-bar-bg); color: var(--top-bar-text); font-size: 12px; padding: 8px 20px; display: flex; justify-content: space-between; align-items: center; text-transform: uppercase; letter-spacing: 1px; }
+
         .navbar { background-color: var(--nav-bg); display: flex; justify-content: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1); position: sticky; top: 0; z-index: 100; flex-wrap: wrap;}
         .nav-item { font-size: 15px; font-weight: 700; color: #fff; cursor: pointer; padding: 18px 25px; transition: 0.3s; text-transform: uppercase; position: relative;}
         .nav-item:hover, .nav-item.active { background-color: var(--hover-red); border-bottom: 4px solid #fff; }
@@ -108,6 +112,15 @@
     </style>
 </head>
 <body>
+
+    <!-- YENİ: ADMİN ÖZEL ANLIK KİŞİ SAYACI -->
+    <div class="top-bar">
+        <div>
+            <span id="currentDate">Tarih Yükleniyor...</span>
+            <span style="color:#ffeb3b; font-weight:900; margin-left: 20px;">🟢 ANLIK SİTEDE: <span id="onlineCount">0</span> KİŞİ</span>
+        </div>
+        <span>Yönetim Paneli</span>
+    </div>
 
     <div class="navbar">
         <div class="nav-item active" onclick="switchTab('pending'); loadPending();">⚡ Onay Bekleyenler <span id="badge" class="notif-badge">0</span></div>
@@ -234,6 +247,9 @@
             localStorage.setItem('theme', document.body.getAttribute('data-theme') || 'light');
         }
 
+        const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+        document.getElementById('currentDate').innerText = new Date().toLocaleDateString('tr-TR', options);
+
         function playBeep() {
             const ctx = new (window.AudioContext || window.webkitAudioContext)();
             const osc = ctx.createOscillator();
@@ -295,6 +311,13 @@
             if ("Notification" in window && Notification.permission === "granted") {
                 new Notification("🔔 Yeni Onay Bekleyen Haber!", { body: `Sisteme ${data.count} adet yeni içerik düştü.` });
             }
+        });
+
+        // YENİ: Admin tarafında online kişi sayısını yakalama
+        evtSource.addEventListener("onlineCount", function(e) {
+            const data = JSON.parse(e.data);
+            const el = document.getElementById('onlineCount');
+            if(el) el.innerText = data.count || 0;
         });
 
         setInterval(() => checkNotifications(), 5000);

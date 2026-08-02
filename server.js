@@ -35,10 +35,15 @@ let pendingMessages = [];
 let approvedMessages = [];
 let lastMessageIds = {}; 
 let isFirstRun = true; 
-let isAutoFetchActive = true;
-let adminNotifications = []; 
 
+// YENİ: Dinamik Bot Ayarları
+let isAutoFetchActive = true;
+let fetchIntervalMs = 3000; // Varsayılan 3 saniye
+let fetchIntervalId = null;
+
+let adminNotifications = []; 
 let sseClients = new Map();
+let activeUsers = {}; 
 
 function broadcastSSE(event, data) {
     const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -52,8 +57,6 @@ const axiosInstance = axios.create({
     httpsAgent: new https.Agent({ keepAlive: true }),
     timeout: 10000 
 });
-
-let activeUsers = {}; 
 
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 
@@ -91,10 +94,19 @@ app.get('/admin/stats', (req, res) => {
     res.json({ onlineCount: Object.keys(activeUsers).length });
 });
 
-app.get('/status', (req, res) => res.json({ isAutoFetchActive }));
-app.post('/toggle-autofetch', (req, res) => {
-    isAutoFetchActive = req.body.isActive;
-    res.json({ success: true, isActive: isAutoFetchActive });
+// YENİ: Bot Ayarları Endpoint'leri
+app.get('/admin/auto-fetch-settings', (req, res) => {
+    res.json({ isActive: isAutoFetchActive, intervalSeconds: fetchIntervalMs / 1000 });
+});
+
+app.post('/admin/auto-fetch-settings', (req, res) => {
+    const { isActive, intervalSeconds } = req.body;
+    isAutoFetchActive = isActive;
+    if (intervalSeconds && intervalSeconds >= 3) {
+        fetchIntervalMs = intervalSeconds * 1000;
+    }
+    startAutoFetch();
+    res.json({ success: true, isActive: isAutoFetchActive, intervalSeconds: fetchIntervalMs / 1000 });
 });
 
 app.get('/get-links', (req, res) => res.json({ data: targetLinks }));
@@ -113,7 +125,6 @@ app.post('/add-link', (req, res) => {
     res.json({ success: true, data: targetLinks });
 });
 
-// JSON İÇE AKTARMA ENDPOINT'İ
 app.post('/admin/import-channels', (req, res) => {
     const { channels } = req.body;
     let addedCount = 0;
@@ -125,7 +136,7 @@ app.post('/admin/import-channels', (req, res) => {
                 targetLinks.push({ 
                     original: link, 
                     scrapeUrl: ch.scrapeUrl || link.replace('t.me/', 't.me/s/'), 
-                    isActive: false, // Her zaman pasif durumda başlasın
+                    isActive: false,
                     error: false 
                 });
                 addedCount++;
@@ -199,11 +210,13 @@ function extractMedia(element, $, msgId) {
         });
     }
 
-    const isVideoNode = element.find('.tgme_widget_message_video_player, .tgme_widget_message_video_thumb, .tgme_widget_message_video_icon, .tgme_widget_message_video_wrap, i.icon-large-play, video, .message-media-duration, .tgme_widget_message_video_duration, [class*="video"]').length > 0;
-
-    if (videoUrl) return { type: 'video', url: videoUrl, thumb: thumbUrl || '' };
-    else if (isVideoNode && msgId) return { type: 'iframe', url: `https://t.me/${msgId}?embed=1&dark=1` };
-    else if (thumbUrl) return { type: 'image', url: thumbUrl };
+    // YENİ: ÇİRKİN "TOO BIG" (IFRAME) HATASINI KALDIRDIK.
+    // EĞER VİDEO ÇOK BÜYÜKSE VE TELEGRAM İZİN VERMİYORSA, SADECE KAPAK FOTOĞRAFINI GÖSTERECEK.
+    if (videoUrl) {
+        return { type: 'video', url: videoUrl, thumb: thumbUrl || '' };
+    } else if (thumbUrl) {
+        return { type: 'image', url: thumbUrl };
+    }
     
     return null;
 }
@@ -316,10 +329,20 @@ async function checkChannels() {
         broadcastSSE('newPending', { count: newPendingAdded }); 
     }
 
-    if (isFirstRun) { console.log("✅ Sistem hazır. Kalıcı Oturum ve Push Bildirimler Aktif!"); isFirstRun = false; }
+    if (isFirstRun) { console.log("✅ Sistem hazır. Hatasız Tarayıcı Devrede!"); isFirstRun = false; }
 }
-setInterval(checkChannels, 3000);
+
+// YENİ: Dinamik Timer (Zamanlayıcı) Sistemi
+function startAutoFetch() {
+    if (fetchIntervalId) clearInterval(fetchIntervalId);
+    if (isAutoFetchActive) {
+        fetchIntervalId = setInterval(checkChannels, fetchIntervalMs);
+    }
+}
+
+// Başlangıç tetiklemesi
 setTimeout(checkChannels, 1000);
+startAutoFetch();
 
 app.post('/fetch-custom-time', async (req, res) => {
     const activeChannels = targetLinks.filter(c => c.isActive !== false);

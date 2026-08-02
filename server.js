@@ -113,6 +113,31 @@ app.post('/add-link', (req, res) => {
     res.json({ success: true, data: targetLinks });
 });
 
+// JSON İÇE AKTARMA ENDPOINT'İ
+app.post('/admin/import-channels', (req, res) => {
+    const { channels } = req.body;
+    let addedCount = 0;
+    
+    if (Array.isArray(channels)) {
+        channels.forEach(ch => {
+            const link = ch.original;
+            if (link && !targetLinks.find(l => l.original === link)) {
+                targetLinks.push({ 
+                    original: link, 
+                    scrapeUrl: ch.scrapeUrl || link.replace('t.me/', 't.me/s/'), 
+                    isActive: false, // Her zaman pasif durumda başlasın
+                    error: false 
+                });
+                addedCount++;
+            }
+        });
+        if(addedCount > 0) {
+            fs.writeFileSync(CHANNELS_FILE, JSON.stringify(targetLinks));
+        }
+    }
+    res.json({ success: true, addedCount });
+});
+
 app.post('/toggle-status', (req, res) => {
     const { link, isActive } = req.body;
     const channel = targetLinks.find(l => l.original === link);
@@ -249,7 +274,7 @@ async function checkChannels() {
     });
 
     const results = await Promise.all(requests);
-    let newPendingAdded = 0; // YENİ: Bildirim sayacı
+    let newPendingAdded = 0; 
 
     results.forEach(result => {
         if (!result) return;
@@ -280,7 +305,7 @@ async function checkChannels() {
                             date: new Date(msgTimeMs).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' }),
                             timestamp: msgTimeMs 
                         });
-                        newPendingAdded++; // YENİ: Yeni içerik bulunduğunda sayacı artır
+                        newPendingAdded++; 
                     }
                 }
             }
@@ -288,7 +313,7 @@ async function checkChannels() {
     });
 
     if (newPendingAdded > 0 && !isFirstRun) {
-        broadcastSSE('newPending', { count: newPendingAdded }); // YENİ: Adminlere bildirim yolla
+        broadcastSSE('newPending', { count: newPendingAdded }); 
     }
 
     if (isFirstRun) { console.log("✅ Sistem hazır. Kalıcı Oturum ve Push Bildirimler Aktif!"); isFirstRun = false; }
@@ -353,7 +378,7 @@ app.post('/fetch-custom-time', async (req, res) => {
     });
 
     if (addedCount > 0) {
-        broadcastSSE('newPending', { count: addedCount }); // YENİ: Adminlere bildirim yolla
+        broadcastSSE('newPending', { count: addedCount }); 
     }
 
     res.json({ success: true, count: addedCount });

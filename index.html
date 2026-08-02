@@ -200,6 +200,14 @@
                     <button class="btn-dark" onclick="addLink()">Kanalı Ekle</button>
                 </div>
             </div>
+            <!-- YENİ: JSON Dosyasından İçe Aktarma Arayüzü -->
+            <div class="admin-header-box" style="margin-top: 15px;">
+                <div class="flex-row">
+                    <input type="file" id="channelImportFile" accept=".json" style="flex:1;">
+                    <button class="btn-approve" onclick="importChannels()">📂 JSON'dan İçe Aktar</button>
+                </div>
+                <p style="font-size:12px; color:var(--text-muted); margin-top:10px; margin-bottom:0;">* Yüklenen kanallar varsayılan olarak "Pasif" durumda eklenecektir.</p>
+            </div>
             <div class="channel-list" id="linkList"></div>
         </div>
     </div>
@@ -253,6 +261,17 @@
             localStorage.setItem('theme', document.body.getAttribute('data-theme') || 'light');
         }
 
+        // Bildirim Sesi Oynatma Fonksiyonu (Eğer sistem sesi kapalıysa uyarır)
+        function playBeep() {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(800, ctx.currentTime);
+            osc.connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.1);
+        }
+
         let isAdmin = false; 
         let ctrlBuffer = "";
         window.addEventListener('keydown', (e) => {
@@ -262,7 +281,6 @@
             } else if(e.key !== 'Control') { ctrlBuffer = ""; }
         });
 
-        // YENİ: Başlangıçta kalıcı oturumu kontrol et
         window.onload = () => {
             if (localStorage.getItem('sh_admin_logged_in') === 'true') {
                 isAdmin = true;
@@ -277,7 +295,7 @@
         function checkLogin() {
             if(document.getElementById('adminUser').value === 'A' && document.getElementById('adminPass').value === 'B') {
                 isAdmin = true;
-                localStorage.setItem('sh_admin_logged_in', 'true'); // YENİ: Kalıcı oturum kaydı
+                localStorage.setItem('sh_admin_logged_in', 'true'); 
                 document.body.classList.add('admin-mode');
                 document.getElementById('loginModal').classList.remove('show');
                 loadApproved(true); 
@@ -285,14 +303,13 @@
                 loadLinks();
                 checkNotifications();
 
-                // YENİ: Giriş yapıldığında bildirim izni iste
-                if ("Notification" in window && Notification.permission !== "granted") {
+                // Masaüstü bildirim izni zorlaması
+                if ("Notification" in window) {
                     Notification.requestPermission();
                 }
             } else { alert("Hatalı şifre!"); }
         }
 
-        // YENİ: Çıkış yaparken kalıcı oturumu sil
         function adminLogout() { 
             isAdmin = false; 
             localStorage.removeItem('sh_admin_logged_in');
@@ -316,7 +333,6 @@
         function sendPing() { fetch('/ping', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ userId: sessionUid }) }); }
         setInterval(sendPing, 15000); sendPing();
 
-        // Anlık SSE Bağlantısı
         const evtSource = new EventSource("/stream");
         
         evtSource.addEventListener("onlineCount", function(e) {
@@ -330,23 +346,35 @@
             }
         });
 
-        // YENİ: Yöneticiye anlık yeni haber bildirimi sistemi
+        // BİLDİRİM VE SES TETİKLEYİCİ
         evtSource.addEventListener("newPending", function(e) {
             if (isAdmin) {
                 const data = JSON.parse(e.data);
                 
-                // Panele düşenleri otomatik yenile
                 if(document.getElementById('pending').classList.contains('active')) {
                     loadPending(true); 
                 } else {
                     loadPending(false); 
                 }
 
-                // Cihazın bildirim sistemini tetikle
-                if ("Notification" in window && Notification.permission === "granted") {
-                    new Notification("🔔 Yeni Onay Bekleyen Haber!", {
-                        body: `Sisteme ${data.count} adet yeni içerik düştü. İncelemek için onay paneline bakın.`,
-                    });
+                // Gelen bildirimde "Bip" sesi çıkar
+                try { playBeep(); } catch(err) {}
+
+                // Tarayıcı destekliyorsa ekran bildirimi yolla
+                if ("Notification" in window) {
+                    if (Notification.permission === "granted") {
+                        new Notification("🔔 Yeni Onay Bekleyen Haber!", {
+                            body: `Sisteme ${data.count} adet yeni içerik düştü. İncelemek için onay paneline bakın.`,
+                        });
+                    } else if (Notification.permission !== "denied") {
+                        Notification.requestPermission().then(permission => {
+                            if (permission === "granted") {
+                                new Notification("🔔 Yeni Onay Bekleyen Haber!", {
+                                    body: `Sisteme ${data.count} adet yeni içerik düştü. İncelemek için onay paneline bakın.`,
+                                });
+                            }
+                        });
+                    }
                 }
             }
         });
@@ -582,6 +610,32 @@
                 alert("Bir hata oluştu.");
                 console.error(e);
             }
+        }
+
+        // YENİ: JSON Dosyasından İçe Aktarma Fonksiyonu
+        async function importChannels() {
+            const fileInput = document.getElementById('channelImportFile');
+            const file = fileInput.files[0];
+            if (!file) return alert("Lütfen bir JSON dosyası seçin!");
+
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                try {
+                    const channels = JSON.parse(e.target.result);
+                    const res = await fetch('/admin/import-channels', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ channels })
+                    });
+                    const data = await res.json();
+                    alert(`Başarılı! ${data.addedCount} yeni kanal eklendi (Pasif olarak).`);
+                    fileInput.value = "";
+                    loadLinks();
+                } catch(err) {
+                    alert("Dosya okunamadı. Geçerli bir JSON formatı olduğundan emin olun.");
+                }
+            };
+            reader.readAsText(file);
         }
 
         async function loadLinks() {

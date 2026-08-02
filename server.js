@@ -38,10 +38,8 @@ let isFirstRun = true;
 let isAutoFetchActive = true;
 let adminNotifications = []; 
 
-// YENİ: Anlık SSE (Server-Sent Events) İstemcileri
 let sseClients = new Map();
 
-// YENİ: Tüm aktif istemcilere (tarayıcılara) anında veri gönderme fonksiyonu
 function broadcastSSE(event, data) {
     const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
     for (const res of sseClients.values()) {
@@ -55,9 +53,10 @@ const axiosInstance = axios.create({
     timeout: 10000 
 });
 
+let activeUsers = {}; 
+
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 
-// YENİ: ANLIK BAĞLANTI (STREAM) NOKTASI
 app.get('/stream', (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -67,14 +66,29 @@ app.get('/stream', (req, res) => {
     const clientId = Date.now().toString() + Math.random().toString();
     sseClients.set(clientId, res);
 
-    // Yeni biri girdiğinde herkesin online sayacını anında güncelle
     broadcastSSE('onlineCount', { count: sseClients.size });
 
-    // Kişi sekmeyi veya tarayıcıyı kapattığında anında sil ve sayacı güncelle
     req.on('close', () => {
         sseClients.delete(clientId);
         broadcastSSE('onlineCount', { count: sseClients.size });
     });
+});
+
+app.post('/ping', (req, res) => {
+    const userId = req.body.userId || req.ip;
+    activeUsers[userId] = Date.now();
+    res.json({ success: true });
+});
+
+setInterval(() => {
+    const now = Date.now();
+    for(let id in activeUsers) {
+        if(now - activeUsers[id] > 60000) delete activeUsers[id];
+    }
+}, 15000);
+
+app.get('/admin/stats', (req, res) => {
+    res.json({ onlineCount: Object.keys(activeUsers).length });
 });
 
 app.get('/status', (req, res) => res.json({ isAutoFetchActive }));
@@ -235,6 +249,8 @@ async function checkChannels() {
     });
 
     const results = await Promise.all(requests);
+    let newPendingAdded = 0; // YENİ: Bildirim sayacı
+
     results.forEach(result => {
         if (!result) return;
         const $ = cheerio.load(result.data);
@@ -264,12 +280,18 @@ async function checkChannels() {
                             date: new Date(msgTimeMs).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' }),
                             timestamp: msgTimeMs 
                         });
+                        newPendingAdded++; // YENİ: Yeni içerik bulunduğunda sayacı artır
                     }
                 }
             }
         });
     });
-    if (isFirstRun) { console.log("✅ Sistem hazır. Gelişmiş SSE Aktif!"); isFirstRun = false; }
+
+    if (newPendingAdded > 0 && !isFirstRun) {
+        broadcastSSE('newPending', { count: newPendingAdded }); // YENİ: Adminlere bildirim yolla
+    }
+
+    if (isFirstRun) { console.log("✅ Sistem hazır. Kalıcı Oturum ve Push Bildirimler Aktif!"); isFirstRun = false; }
 }
 setInterval(checkChannels, 3000);
 setTimeout(checkChannels, 1000);
@@ -329,6 +351,11 @@ app.post('/fetch-custom-time', async (req, res) => {
             }
         });
     });
+
+    if (addedCount > 0) {
+        broadcastSSE('newPending', { count: addedCount }); // YENİ: Adminlere bildirim yolla
+    }
+
     res.json({ success: true, count: addedCount });
 });
 
@@ -363,7 +390,6 @@ app.post('/admin/add-manual', upload.single('file'), (req, res) => {
     };
     approvedMessages.unshift(newMsg); 
 
-    // YENİ: Haber eklendiğinde herkese anlık bildir
     broadcastSSE('refreshNews', { success: true });
 
     res.json({ success: true });
@@ -393,7 +419,6 @@ app.post('/interact', (req, res) => {
                 text: data,
                 date: commentData.date
             });
-            // YENİ: Biri yorum yaptığında herkese anlık bildir
             broadcastSSE('refreshNews', { success: true });
         }
     }
@@ -406,7 +431,7 @@ app.post('/admin/delete-comment', (req, res) => {
     
     if (msg && msg.comments) {
         msg.comments = msg.comments.filter(c => c.id !== commentId);
-        broadcastSSE('refreshNews', { success: true }); // Yorum silinince herkese bildir
+        broadcastSSE('refreshNews', { success: true }); 
     }
     res.json({ success: true });
 });
@@ -501,7 +526,6 @@ app.post('/admin/approve', (req, res) => {
         
         approvedMessages.unshift(msg); 
         
-        // YENİ: Haber onaylandığında sayfadaki herkesin akışını anında güncelle
         broadcastSSE('refreshNews', { success: true });
 
         res.json({ success: true });
@@ -516,14 +540,14 @@ app.get('/admin/approved', (req, res) => {
 
 app.post('/admin/approved-delete', (req, res) => {
     approvedMessages = approvedMessages.filter(m => m.id !== req.body.id);
-    broadcastSSE('refreshNews', { success: true }); // Herkese bildir
+    broadcastSSE('refreshNews', { success: true }); 
     res.json({ success: true });
 });
 
 app.post('/admin/approved-edit', (req, res) => {
     const msg = approvedMessages.find(m => m.id === req.body.id);
     if (msg) msg.text = req.body.newText;
-    broadcastSSE('refreshNews', { success: true }); // Herkese bildir
+    broadcastSSE('refreshNews', { success: true }); 
     res.json({ success: true });
 });
 

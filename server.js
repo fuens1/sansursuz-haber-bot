@@ -36,9 +36,8 @@ let approvedMessages = [];
 let lastMessageIds = {}; 
 let isFirstRun = true; 
 
-// YENİ: Dinamik Bot Ayarları
 let isAutoFetchActive = true;
-let fetchIntervalMs = 3000; // Varsayılan 3 saniye
+let fetchIntervalMs = 3000; 
 let fetchIntervalId = null;
 
 let adminNotifications = []; 
@@ -58,7 +57,11 @@ const axiosInstance = axios.create({
     timeout: 10000 
 });
 
+// ANA SİTE
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+
+// GİZLİ YÖNETİCİ PANELİ
+app.get('/admin1762312766', (req, res) => res.sendFile(path.join(__dirname, 'admin.html')));
 
 app.get('/stream', (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
@@ -94,7 +97,6 @@ app.get('/admin/stats', (req, res) => {
     res.json({ onlineCount: Object.keys(activeUsers).length });
 });
 
-// YENİ: Bot Ayarları Endpoint'leri
 app.get('/admin/auto-fetch-settings', (req, res) => {
     res.json({ isActive: isAutoFetchActive, intervalSeconds: fetchIntervalMs / 1000 });
 });
@@ -210,8 +212,6 @@ function extractMedia(element, $, msgId) {
         });
     }
 
-    // YENİ: ÇİRKİN "TOO BIG" (IFRAME) HATASINI KALDIRDIK.
-    // EĞER VİDEO ÇOK BÜYÜKSE VE TELEGRAM İZİN VERMİYORSA, SADECE KAPAK FOTOĞRAFINI GÖSTERECEK.
     if (videoUrl) {
         return { type: 'video', url: videoUrl, thumb: thumbUrl || '' };
     } else if (thumbUrl) {
@@ -329,10 +329,9 @@ async function checkChannels() {
         broadcastSSE('newPending', { count: newPendingAdded }); 
     }
 
-    if (isFirstRun) { console.log("✅ Sistem hazır. Hatasız Tarayıcı Devrede!"); isFirstRun = false; }
+    if (isFirstRun) { console.log("✅ Sistem hazır. Yalnızca Admin paneli ayrıldı."); isFirstRun = false; }
 }
 
-// YENİ: Dinamik Timer (Zamanlayıcı) Sistemi
 function startAutoFetch() {
     if (fetchIntervalId) clearInterval(fetchIntervalId);
     if (isAutoFetchActive) {
@@ -340,7 +339,6 @@ function startAutoFetch() {
     }
 }
 
-// Başlangıç tetiklemesi
 setTimeout(checkChannels, 1000);
 startAutoFetch();
 

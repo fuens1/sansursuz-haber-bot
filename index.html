@@ -91,8 +91,8 @@
         .comment-date { font-size: 11px; color: var(--text-muted); margin-bottom: 5px; font-weight: bold;}
         .del-comment-btn { position: absolute; right: 10px; top: 10px; background: #c62828; color: white; border: none; padding: 2px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; font-weight: bold;}
         
-        input[type="text"], input[type="password"], input[type="number"], input[type="file"], textarea { width:100%; padding: 14px; border: 1px solid var(--input-border); background: var(--input-bg); color: var(--text-main); border-radius: 4px; font-size:16px; outline:none; box-sizing:border-box; font-family:inherit;}
-        input:focus, textarea:focus { border-color: #d32f2f; }
+        input[type="text"], input[type="password"], input[type="number"], input[type="file"], textarea, select { width:100%; padding: 14px; border: 1px solid var(--input-border); background: var(--input-bg); color: var(--text-main); border-radius: 4px; font-size:16px; outline:none; box-sizing:border-box; font-family:inherit;}
+        input:focus, textarea:focus, select:focus { border-color: #d32f2f; }
         
         button { padding: 12px 20px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; transition: 0.2s; color:white; font-size:15px; display: flex; align-items: center; justify-content: center;}
         .btn-dark { background: #111; } .btn-dark:hover { background: #333; }
@@ -194,13 +194,30 @@
         </div>
 
         <div id="links" class="panel">
+            
+            <!-- YENİ: OTOMATİK BOT AYARLARI -->
+            <div class="admin-header-box" style="margin-bottom: 15px; display:flex; flex-wrap:wrap; gap:15px; align-items:center; background:var(--bg-card); border-left-color:#f57c00;">
+                <div style="font-weight:900; color:#f57c00; font-size:16px; width:100%;">🤖 Otomatik Bot Ayarları</div>
+                <div class="flex-row" style="width:auto;">
+                    <label style="font-weight:bold;">Bot Durumu:</label>
+                    <select id="autoFetchToggle" style="width:100px; padding:8px;">
+                        <option value="true">AÇIK</option>
+                        <option value="false">KAPALI</option>
+                    </select>
+                </div>
+                <div class="flex-row" style="width:auto;">
+                    <label style="font-weight:bold;">Tarama Sıklığı (Saniye):</label>
+                    <input type="number" id="autoFetchInterval" min="3" style="width:80px; padding:8px;">
+                </div>
+                <button class="btn-approve" onclick="saveAutoFetchSettings()">💾 Ayarları Kaydet</button>
+            </div>
+
             <div class="admin-header-box">
                 <div class="flex-row">
                     <input type="text" id="newLink" placeholder="Kanal linki ekle (Örn: https://t.me/ntv)" style="flex:1;">
                     <button class="btn-dark" onclick="addLink()">Kanalı Ekle</button>
                 </div>
             </div>
-            <!-- YENİ: JSON Dosyasından İçe Aktarma Arayüzü -->
             <div class="admin-header-box" style="margin-top: 15px;">
                 <div class="flex-row">
                     <input type="file" id="channelImportFile" accept=".json" style="flex:1;">
@@ -261,7 +278,6 @@
             localStorage.setItem('theme', document.body.getAttribute('data-theme') || 'light');
         }
 
-        // Bildirim Sesi Oynatma Fonksiyonu (Eğer sistem sesi kapalıysa uyarır)
         function playBeep() {
             const ctx = new (window.AudioContext || window.webkitAudioContext)();
             const osc = ctx.createOscillator();
@@ -288,6 +304,7 @@
                 loadPending(true);
                 loadLinks();
                 checkNotifications();
+                loadAutoFetchSettings(); // YENİ
             }
             loadApproved(true); 
         };
@@ -302,8 +319,8 @@
                 loadPending(true);
                 loadLinks();
                 checkNotifications();
+                loadAutoFetchSettings(); // YENİ
 
-                // Masaüstü bildirim izni zorlaması
                 if ("Notification" in window) {
                     Notification.requestPermission();
                 }
@@ -346,7 +363,6 @@
             }
         });
 
-        // BİLDİRİM VE SES TETİKLEYİCİ
         evtSource.addEventListener("newPending", function(e) {
             if (isAdmin) {
                 const data = JSON.parse(e.data);
@@ -357,10 +373,8 @@
                     loadPending(false); 
                 }
 
-                // Gelen bildirimde "Bip" sesi çıkar
                 try { playBeep(); } catch(err) {}
 
-                // Tarayıcı destekliyorsa ekran bildirimi yolla
                 if ("Notification" in window) {
                     if (Notification.permission === "granted") {
                         new Notification("🔔 Yeni Onay Bekleyen Haber!", {
@@ -398,6 +412,28 @@
             else if (mediaObj.type === 'iframe') return `<div class="${wrapClass}" style="background:#000; width:100%; display:flex; justify-content:center; overflow:hidden;"><iframe src="${mediaObj.url}" frameborder="0" scrolling="yes" style="width:100%; height:100%; min-height:350px;"></iframe></div>`;
             else if (mediaObj.type === 'image') return `<div class="${wrapClass}"><img src="${mediaObj.url}" class="${itemClass}"></div>`;
             return '';
+        }
+
+        // YENİ: Bot Ayarlarını Getirme ve Kaydetme
+        async function loadAutoFetchSettings() {
+            const res = await fetch('/admin/auto-fetch-settings');
+            const data = await res.json();
+            document.getElementById('autoFetchToggle').value = data.isActive ? "true" : "false";
+            document.getElementById('autoFetchInterval').value = data.intervalSeconds;
+        }
+
+        async function saveAutoFetchSettings() {
+            const isActive = document.getElementById('autoFetchToggle').value === "true";
+            const intervalSeconds = parseInt(document.getElementById('autoFetchInterval').value);
+            
+            if(intervalSeconds < 3) return alert("Tarama sıklığı en az 3 saniye olmalıdır!");
+            
+            await fetch('/admin/auto-fetch-settings', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ isActive, intervalSeconds })
+            });
+            alert("Bot ayarları başarıyla güncellendi!");
         }
 
         async function loadApproved(force = false) {
@@ -612,7 +648,6 @@
             }
         }
 
-        // YENİ: JSON Dosyasından İçe Aktarma Fonksiyonu
         async function importChannels() {
             const fileInput = document.getElementById('channelImportFile');
             const file = fileInput.files[0];

@@ -96,7 +96,6 @@
             .logo-icon { font-size: 22px; padding: 3px 8px; }
             .theme-toggle { top: 12px; right: 12px; padding: 6px 12px; font-size: 12px; }
             .top-bar { flex-direction: column; text-align: center; gap: 8px; padding: 10px; }
-            .top-bar > span:last-child { display: none; }
             .navbar { position: fixed; bottom: 0; top: auto; width: 100%; overflow-x: auto; flex-wrap: nowrap; justify-content: flex-start; border-top: 2px solid rgba(0,0,0,0.1); box-shadow: 0 -4px 10px rgba(0,0,0,0.1); }
             .nav-item { flex: 0 0 auto; font-size: 13px; padding: 15px 18px; border-bottom: none !important; }
             .nav-item.active { border-top: 4px solid #fff; background-color: var(--hover-red); }
@@ -113,7 +112,6 @@
     <div class="top-bar">
         <div>
             <span id="currentDate">Tarih Yükleniyor...</span>
-            <span style="color:#ffeb3b; font-weight:900; margin-left: 20px;">🟢 ANLIK SİTEDE: <span id="onlineCount">0</span> KİŞİ</span>
         </div>
         <span>Türkiye'nin En Hızlı Haber Portalı</span>
     </div>
@@ -168,10 +166,6 @@
         setInterval(sendPing, 15000); sendPing();
 
         const evtSource = new EventSource("/stream");
-        evtSource.addEventListener("onlineCount", function(e) {
-            const data = JSON.parse(e.data);
-            document.getElementById('onlineCount').innerText = data.count || 0;
-        });
         evtSource.addEventListener("refreshNews", function(e) {
             loadApproved(true); 
         });

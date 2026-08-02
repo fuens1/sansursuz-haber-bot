@@ -53,7 +53,6 @@
         .news-article { background: var(--bg-card); border-radius: 6px; overflow: hidden; box-shadow: 0 4px 15px var(--card-shadow); border: 1px solid var(--border-color); display: flex; flex-direction: column; cursor: pointer; transition: 0.2s;}
         .news-article:hover { transform: translateY(-5px); border-color:#d32f2f;}
         
-        /* YENİ: OKUNMAMIŞ HABER IŞILTISI */
         @keyframes pulseGlow {
             0% { box-shadow: 0 0 5px rgba(211, 47, 47, 0.4); border-color: rgba(211, 47, 47, 0.5); }
             50% { box-shadow: 0 0 15px rgba(211, 47, 47, 0.9); border-color: rgba(211, 47, 47, 1); }
@@ -263,18 +262,44 @@
             } else if(e.key !== 'Control') { ctrlBuffer = ""; }
         });
 
+        // YENİ: Başlangıçta kalıcı oturumu kontrol et
+        window.onload = () => {
+            if (localStorage.getItem('sh_admin_logged_in') === 'true') {
+                isAdmin = true;
+                document.body.classList.add('admin-mode');
+                loadPending(true);
+                loadLinks();
+                checkNotifications();
+            }
+            loadApproved(true); 
+        };
+
         function checkLogin() {
             if(document.getElementById('adminUser').value === 'A' && document.getElementById('adminPass').value === 'B') {
                 isAdmin = true;
+                localStorage.setItem('sh_admin_logged_in', 'true'); // YENİ: Kalıcı oturum kaydı
                 document.body.classList.add('admin-mode');
                 document.getElementById('loginModal').classList.remove('show');
                 loadApproved(true); 
                 loadPending(true);
                 loadLinks();
                 checkNotifications();
+
+                // YENİ: Giriş yapıldığında bildirim izni iste
+                if ("Notification" in window && Notification.permission !== "granted") {
+                    Notification.requestPermission();
+                }
             } else { alert("Hatalı şifre!"); }
         }
-        function adminLogout() { isAdmin = false; document.body.classList.remove('admin-mode'); switchTab('approved'); loadApproved(true); }
+
+        // YENİ: Çıkış yaparken kalıcı oturumu sil
+        function adminLogout() { 
+            isAdmin = false; 
+            localStorage.removeItem('sh_admin_logged_in');
+            document.body.classList.remove('admin-mode'); 
+            switchTab('approved'); 
+            loadApproved(true); 
+        }
 
         function switchTab(tabId) {
             document.querySelectorAll('.nav-item').forEach(t => t.classList.remove('active'));
@@ -286,7 +311,12 @@
         const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
         document.getElementById('currentDate').innerText = new Date().toLocaleDateString('tr-TR', options);
 
-        // YENİ: Anlık SSE (Server-Sent Events) Bağlantısı
+        const sessionUid = Math.random().toString(36).substring(2);
+        
+        function sendPing() { fetch('/ping', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ userId: sessionUid }) }); }
+        setInterval(sendPing, 15000); sendPing();
+
+        // Anlık SSE Bağlantısı
         const evtSource = new EventSource("/stream");
         
         evtSource.addEventListener("onlineCount", function(e) {
@@ -295,9 +325,29 @@
         });
 
         evtSource.addEventListener("refreshNews", function(e) {
-            // Arka planda haber onaylandığında/eklendiğinde veya yorum yapıldığında anında tetiklenir
             if(document.getElementById('approved').classList.contains('active')) {
                 loadApproved(true); 
+            }
+        });
+
+        // YENİ: Yöneticiye anlık yeni haber bildirimi sistemi
+        evtSource.addEventListener("newPending", function(e) {
+            if (isAdmin) {
+                const data = JSON.parse(e.data);
+                
+                // Panele düşenleri otomatik yenile
+                if(document.getElementById('pending').classList.contains('active')) {
+                    loadPending(true); 
+                } else {
+                    loadPending(false); 
+                }
+
+                // Cihazın bildirim sistemini tetikle
+                if ("Notification" in window && Notification.permission === "granted") {
+                    new Notification("🔔 Yeni Onay Bekleyen Haber!", {
+                        body: `Sisteme ${data.count} adet yeni içerik düştü. İncelemek için onay paneline bakın.`,
+                    });
+                }
             }
         });
 
@@ -312,10 +362,7 @@
         let pendingPage = 1;
         const ITEMS_PER_PAGE = 12;
 
-        // OKUNMUŞ HABERLERİ TARAYICI HAFIZASINDAN ÇEK (ID BAZLI)
         let readNewsArray = JSON.parse(localStorage.getItem('sh_read_news')) || [];
-
-        window.onload = () => loadApproved(true); 
 
         function generateMediaHtml(mediaObj, wrapClass, itemClass) {
             if (!mediaObj) return '';
@@ -343,7 +390,6 @@
             list.innerHTML = data.data.map(msg => {
                 const mediaHtml = generateMediaHtml(msg.media, "news-media-wrapper", "news-media");
                 
-                // YENİ: Okunmamışsa ışıltı klasını ekle
                 const isRead = readNewsArray.includes(msg.id);
                 const glowClass = isRead ? '' : 'unread-glow';
 
@@ -379,7 +425,6 @@
             const msg = allApprovedNews.find(m => m.id === id);
             if(!msg) return;
 
-            // YENİ: Habere tıklandığında okunmuş olarak işaretle ve ışıltıyı sil
             if (!readNewsArray.includes(id)) {
                 readNewsArray.push(id);
                 localStorage.setItem('sh_read_news', JSON.stringify(readNewsArray));
@@ -436,7 +481,6 @@
         function closeModal(force = false) {
             if(force || event.target.id === 'newsModal') {
                 document.getElementById('newsModal').classList.remove('show');
-                // Modal kapanırken arkaplandaki ana ekranın tam güncel kalmasını sağlarız
                 loadApproved(true); 
             }
         }
